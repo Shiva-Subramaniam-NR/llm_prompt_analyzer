@@ -5,3 +5,9 @@ spacy>=3.0.0
 sentence-transformers>=2.2.0
 numpy>=1.21.0
 scikit-learn>=1.0.0
+
+# Phase 1 - Artifact support (optional)
+# Install these for full artifact processing:
+#   pip install pdfplumber Pillow
+# pdfplumber>=0.9.0    # For PDF text extraction
+# Pillow>=9.0.0         # For image metadata

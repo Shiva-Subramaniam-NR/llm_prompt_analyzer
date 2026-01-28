@@ -51,7 +51,13 @@ NEVER: Share payment information
 
 user_prompt = "Book a flight from New York to London on Dec 25th"
 
-report = analyzer.analyze(system_prompt, user_prompt)
+# Optional: Provide artifacts (files referenced in prompts)
+artifacts = {
+    'booking_policy': 'docs/policy.pdf',
+    'terms': 'docs/terms.txt'
+}
+
+report = analyzer.analyze(system_prompt, user_prompt, artifacts=artifacts)
 
 print(f"Overall Score: {report.overall_score:.1f}/10")
 print(f"Quality: {report.quality_rating.value}")
@@ -65,6 +71,7 @@ print(f"Can Fulfill Request: {report.is_fulfillable}")
 - 🔍 **5 Core Components** - Parser, Alignment, Contradiction, Verbosity, Orchestrator
 - 📦 **Production-Ready** - JSON export, confidence scores, recommendations
 - ⚡ **Fast** - ~300-800ms per analysis, no LLM calls needed
+- 📎 **Artifact Support** - Upload PDFs, images, documents referenced in prompts (Phase 1)
 
 ## 🧪 Running Tests
 

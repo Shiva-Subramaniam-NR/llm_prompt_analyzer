@@ -25,6 +25,7 @@ from v2.system_prompt_parser import SystemPromptParser, SystemPromptAnalysis
 from v2.alignment_checker import AlignmentChecker, AlignmentAnalysis, MisalignmentSeverity
 from v2.contradiction_detector import ContradictionDetector, ContradictionAnalysis, ContradictionSeverity
 from v2.verbosity_analyzer import VerbosityAnalyzer, VerbosityMetrics
+from v2.artifact_handler import ArtifactHandler, Artifact
 
 
 class PromptQuality(Enum):
@@ -182,6 +183,7 @@ class PromptQualityAnalyzer:
         )
         self.contradiction_detector = ContradictionDetector(self.embedding_manager)
         self.verbosity_analyzer = VerbosityAnalyzer(self.embedding_manager)
+        self.artifact_handler = ArtifactHandler()
 
         if self.verbose:
             print("[OK] All components initialized successfully")
@@ -189,7 +191,8 @@ class PromptQualityAnalyzer:
     def analyze(
         self,
         system_prompt: str,
-        user_prompt: Optional[str] = None
+        user_prompt: Optional[str] = None,
+        artifacts: Optional[Dict[str, str]] = None
     ) -> PromptQualityReport:
         """
         Perform comprehensive quality analysis on prompts.
@@ -197,6 +200,8 @@ class PromptQualityAnalyzer:
         Args:
             system_prompt: The system prompt to analyze
             user_prompt: Optional user prompt for alignment checking
+            artifacts: Optional dict of artifact names to file paths
+                      e.g., {'document': 'path/to/doc.pdf', 'image': 'path/to/img.jpg'}
 
         Returns:
             PromptQualityReport with detailed analysis
@@ -204,39 +209,59 @@ class PromptQualityAnalyzer:
         if self.verbose:
             print("\n[ANALYZING] Running comprehensive quality analysis...")
 
+        # 0. Process artifacts (if provided)
+        processed_artifacts = {}
+        artifact_issues = []
+        if artifacts:
+            if self.verbose:
+                print("  [0/5] Processing artifacts...")
+            processed_artifacts, artifact_issues = self.artifact_handler.process_artifacts(artifacts)
+
+            # Check if artifacts mentioned in prompts are provided
+            if user_prompt:
+                mention_issues = self.artifact_handler.validate_artifacts_mentioned_in_prompt(
+                    user_prompt, processed_artifacts
+                )
+                artifact_issues.extend(mention_issues)
+
+            if self.verbose and artifact_issues:
+                print(f"       Found {len(artifact_issues)} artifact issues")
+
         # 1. Parse system prompt
         if self.verbose:
-            print("  [1/4] Parsing system prompt...")
+            print(f"  [1/{5 if artifacts else 4}] Parsing system prompt...")
         system_analysis = self.system_prompt_parser.parse(system_prompt)
 
         # 2. Check for contradictions in system prompt
         if self.verbose:
-            print("  [2/4] Detecting contradictions...")
+            print(f"  [2/{5 if artifacts else 4}] Detecting contradictions...")
         contradiction_analysis = self.contradiction_detector.detect(system_prompt)
 
         # 3. Analyze verbosity
         if self.verbose:
-            print("  [3/4] Analyzing verbosity...")
+            print(f"  [3/{5 if artifacts else 4}] Analyzing verbosity...")
         verbosity_metrics = self.verbosity_analyzer.analyze(system_prompt)
 
         # 4. Check alignment (if user prompt provided)
         alignment_analysis = None
         if user_prompt:
             if self.verbose:
-                print("  [4/4] Checking alignment with user prompt...")
+                print(f"  [4/{5 if artifacts else 4}] Checking alignment with user prompt...")
             alignment_analysis = self.alignment_checker.check_alignment(
                 system_prompt, user_prompt
             )
         else:
             if self.verbose:
-                print("  [4/4] Skipping alignment check (no user prompt)")
+                print(f"  [4/{5 if artifacts else 4}] Skipping alignment check (no user prompt)")
 
         # Aggregate results
         report = self._create_report(
             system_analysis,
             contradiction_analysis,
             verbosity_metrics,
-            alignment_analysis
+            alignment_analysis,
+            processed_artifacts,
+            artifact_issues
         )
 
         if self.verbose:
@@ -249,11 +274,26 @@ class PromptQualityAnalyzer:
         system_analysis: SystemPromptAnalysis,
         contradiction_analysis: ContradictionAnalysis,
         verbosity_metrics: VerbosityMetrics,
-        alignment_analysis: Optional[AlignmentAnalysis]
+        alignment_analysis: Optional[AlignmentAnalysis],
+        processed_artifacts: Optional[Dict[str, Artifact]] = None,
+        artifact_issues: Optional[List[str]] = None
     ) -> PromptQualityReport:
         """Aggregate results from all components into a unified report"""
 
         all_issues = []
+
+        # Add artifact issues first (if any)
+        if artifact_issues:
+            for artifact_issue in artifact_issues:
+                issue = QualityIssue(
+                    category="artifact",
+                    severity="high",
+                    title="Artifact Issue",
+                    description=artifact_issue,
+                    recommendation="Ensure all mentioned artifacts are provided and accessible",
+                    confidence=1.0
+                )
+                all_issues.append(issue)
 
         # Extract issues from contradiction analysis
         for contradiction in contradiction_analysis.contradictions:
