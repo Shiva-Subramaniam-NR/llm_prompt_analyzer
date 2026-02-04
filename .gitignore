@@ -58,3 +58,9 @@ htmlcov/
 # Debug files
 debug_*.py
 nul
+
+# API Keys and Secrets (Phase 2)
+.env
+config/api_keys.json
+config/llm_config.json
+*_api_key.txt

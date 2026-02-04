@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Prompt Quality Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
+        /* Animations */
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+
+        /* Score bar animation */
+        .score-bar {
+            transition: width 1s ease-out;
+        }
+    </style>
+</head>
+<body class="h-full bg-gray-50">
+    <div class="min-h-full">
+        <!-- Header -->
+        <header class="bg-gradient-to-r from-blue-600 to-indigo-700 shadow-lg">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                        <i class="fas fa-search text-white text-3xl"></i>
+                        <div>
+                            <h1 class="text-3xl font-bold text-white">LLM Prompt Quality Analyzer</h1>
+                            <p class="text-blue-100 text-sm">Fast, Free, and Intelligent Prompt Debugging</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <span class="text-blue-100 text-sm">v2.1.0</span>
+                        <a href="https://github.com/Shiva-Subramaniam-NR/llm_prompt_analyzer" target="_blank"
+                           class="text-white hover:text-blue-200 transition">
+                            <i class="fab fa-github text-2xl"></i>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <!-- Input Section -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-6 flex items-center">
+                    <i class="fas fa-pencil-alt mr-2 text-blue-600"></i>
+                    Prompt Input
+                </h2>
+
+                <!-- System Prompt -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        System Prompt <span class="text-red-500">*</span>
+                        <span class="text-gray-500 font-normal">(The instructions for your AI)</span>
+                    </label>
+                    <textarea id="systemPrompt" rows="8"
+                              class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                              placeholder="You are a flight booking assistant.&#10;REQUIRED: origin, destination, date&#10;MUST: Verify all booking details&#10;NEVER: Share payment information"></textarea>
+                    <div class="mt-2 flex items-center justify-between">
+                        <span id="systemCharCount" class="text-xs text-gray-500">0 characters</span>
+                        <span class="text-xs text-gray-500"><i class="fas fa-lightbulb text-yellow-500"></i> Minimum 10 characters</span>
+                    </div>
+                </div>
+
+                <!-- User Prompt -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        User Prompt <span class="text-gray-400">(Optional)</span>
+                        <span class="text-gray-500 font-normal">(Sample user input to test against)</span>
+                    </label>
+                    <textarea id="userPrompt" rows="4"
+                              class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                              placeholder="Book a flight from NYC to London on December 25th"></textarea>
+                    <div class="mt-2">
+                        <span id="userCharCount" class="text-xs text-gray-500">0 characters</span>
+                    </div>
+                </div>
+
+                <!-- Artifacts Upload -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Artifacts <span class="text-gray-400">(Optional)</span>
+                        <span class="text-gray-500 font-normal">(PDFs, images, documents referenced in prompts)</span>
+                    </label>
+                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition cursor-pointer"
+                         id="uploadArea">
+                        <input type="file" id="fileInput" class="hidden" multiple
+                               accept=".pdf,.txt,.md,.json,.csv,.jpg,.jpeg,.png,.gif">
+                        <i class="fas fa-cloud-upload-alt text-4xl text-gray-400 mb-2"></i>
+                        <p class="text-gray-600">Click to upload or drag and drop</p>
+                        <p class="text-xs text-gray-500 mt-1">PDF, TXT, MD, JSON, CSV, Images (max 16MB)</p>
+                    </div>
+                    <div id="uploadedFiles" class="mt-4 space-y-2"></div>
+                </div>
+
+                <!-- Analysis Mode -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-3">
+                        Analysis Mode
+                    </label>
+                    <div class="space-y-3">
+                        <label class="flex items-start p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition">
+                            <input type="radio" name="analysisMode" value="tier1" checked
+                                   class="mt-1 mr-3 text-blue-600 focus:ring-blue-500">
+                            <div class="flex-1">
+                                <div class="flex items-center justify-between">
+                                    <span class="font-medium text-gray-900">Tier 1 Only (Recommended)</span>
+                                    <span class="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">FREE</span>
+                                </div>
+                                <p class="text-sm text-gray-600 mt-1">
+                                    ⚡ Fast (300-800ms) • 🎯 Structured • 🔄 Deterministic
+                                </p>
+                                <p class="text-xs text-gray-500 mt-1">
+                                    Detects contradictions, verbosity, missing parameters, artifact issues
+                                </p>
+                            </div>
+                        </label>
+
+                        <label class="flex items-start p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:bg-purple-50 hover:border-purple-300 transition">
+                            <input type="radio" name="analysisMode" value="tier2"
+                                   class="mt-1 mr-3 text-purple-600 focus:ring-purple-500">
+                            <div class="flex-1">
+                                <div class="flex items-center justify-between">
+                                    <span class="font-medium text-gray-900">Tier 1 + Tier 2 (LLM Deep Analysis)</span>
+                                    <span class="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">~$0.0006</span>
+                                </div>
+                                <p class="text-sm text-gray-600 mt-1">
+                                    🧠 Semantic • 🛡️ Safety-Aware • 🔒 Security-Focused • 💬 Explanations
+                                </p>
+                                <p class="text-xs text-gray-500 mt-1">
+                                    Adds: Impossibility detection, safety risks, security threats, natural language explanations
+                                </p>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="flex items-center space-x-4">
+                    <button id="analyzeBtn"
+                            class="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-3 rounded-lg font-semibold hover:from-blue-700 hover:to-indigo-700 transition shadow-md flex items-center justify-center">
+                        <i class="fas fa-magic mr-2"></i>
+                        Analyze Prompt
+                    </button>
+                    <button id="clearBtn"
+                            class="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50 transition">
+                        <i class="fas fa-eraser mr-2"></i>
+                        Clear
+                    </button>
+                    <button id="exportBtn" disabled
+                            class="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                        <i class="fas fa-download mr-2"></i>
+                        Export JSON
+                    </button>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <div id="resultsSection" class="hidden">
+                <!-- Loading State -->
+                <div id="loadingState" class="bg-white rounded-lg shadow-md p-8 text-center">
+                    <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+                    <h3 class="text-xl font-semibold text-gray-800 mb-2">Analyzing Your Prompts...</h3>
+                    <p class="text-gray-600">This may take a few seconds</p>
+                </div>
+
+                <!-- Results Display -->
+                <div id="resultsDisplay" class="hidden">
+                    <!-- Overall Score Card -->
+                    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                        <h2 class="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
+                            <i class="fas fa-chart-line mr-2 text-blue-600"></i>
+                            Overall Quality
+                        </h2>
+                        <div class="flex items-center space-x-6">
+                            <div class="flex-1">
+                                <div class="flex items-end justify-between mb-2">
+                                    <span class="text-5xl font-bold" id="overallScore">0.0</span>
+                                    <span class="text-2xl text-gray-400">/10</span>
+                                    <span id="qualityBadge" class="px-4 py-2 rounded-full text-sm font-semibold"></span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                                    <div id="overallScoreBar" class="score-bar h-4 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-4 flex items-center space-x-4 text-sm">
+                            <span id="fulfillableStatus" class="flex items-center">
+                                <i class="fas fa-check-circle text-green-500 mr-2"></i>
+                                Can fulfill request
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Component Scores -->
+                    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                        <h3 class="text-xl font-semibold text-gray-800 mb-4">Component Scores</h3>
+                        <div id="componentScores" class="space-y-4"></div>
+                    </div>
+
+                    <!-- Issues Found -->
+                    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                        <h3 class="text-xl font-semibold text-gray-800 mb-4 flex items-center justify-between">
+                            <span><i class="fas fa-exclamation-triangle mr-2 text-yellow-600"></i>Issues Found</span>
+                            <span id="issuesCount" class="text-sm text-gray-600"></span>
+                        </h3>
+                        <div id="issuesList" class="space-y-4"></div>
+                    </div>
+
+                    <!-- Tier 2 Results (if available) -->
+                    <div id="tier2Results" class="hidden bg-gradient-to-br from-purple-50 to-indigo-50 rounded-lg shadow-md p-6">
+                        <h3 class="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+                            <i class="fas fa-brain mr-2 text-purple-600"></i>
+                            LLM Deep Analysis (Tier 2)
+                        </h3>
+                        <div id="tier2Content"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="bg-white border-t border-gray-200 mt-12">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+                <div class="flex items-center justify-between">
+                    <p class="text-gray-600 text-sm">
+                        Built with <i class="fas fa-heart text-red-500"></i> for better LLM applications
+                    </p>
+                    <div class="flex items-center space-x-4 text-sm text-gray-600">
+                        <a href="#" class="hover:text-blue-600 transition">Documentation</a>
+                        <span>•</span>
+                        <a href="https://github.com/Shiva-Subramaniam-NR/llm_prompt_analyzer" target="_blank" class="hover:text-blue-600 transition">GitHub</a>
+                    </div>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
