@@ -27,6 +27,12 @@ ALLOWED_EXTENSIONS = {'pdf', 'txt', 'md', 'json', 'csv', 'jpg', 'jpeg', 'png', '
 app.config['UPLOAD_FOLDER'] = str(UPLOAD_FOLDER)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
+# Global analyzer instance (initialized once to avoid reloading embeddings)
+print("Initializing analyzers (this may take ~30 seconds on first run)...")
+global_analyzer = PromptQualityAnalyzer(verbose=False)
+global_llm_analyzer = None  # Initialize lazily when needed
+print("Analyzers ready!")
+
 
 def allowed_file(filename):
     """Check if file extension is allowed"""
@@ -85,11 +91,9 @@ def analyze_prompt():
                 if file_path.exists():
                     artifacts[name] = str(file_path)
 
-        # Initialize analyzer
-        analyzer = PromptQualityAnalyzer(verbose=verbose)
-
-        # Run Tier 1 analysis
-        report = analyzer.analyze(
+        # Use global analyzer instance (already initialized)
+        # This avoids reloading embeddings on every request
+        report = global_analyzer.analyze(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             artifacts=artifacts if artifacts else None
@@ -131,7 +135,11 @@ def analyze_prompt():
         # Run Tier 2 LLM analysis if requested
         if use_llm and user_prompt:
             try:
-                llm_analyzer = LLMAnalyzer(verbose=verbose)
+                # Initialize LLM analyzer lazily (only when needed)
+                global global_llm_analyzer
+                if global_llm_analyzer is None:
+                    global_llm_analyzer = LLMAnalyzer(verbose=verbose)
+                llm_analyzer = global_llm_analyzer
 
                 # Semantic impossibility detection
                 tier1_issues = [
@@ -252,4 +260,4 @@ if __name__ == '__main__':
     print("\nPress Ctrl+C to stop the server")
     print("="*60 + "\n")
 
-    app.run(debug=True, host='127.0.0.1', port=5000)
+    app.run(debug=False, host='127.0.0.1', port=5000, use_reloader=False)
