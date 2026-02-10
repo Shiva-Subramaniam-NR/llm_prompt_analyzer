@@ -206,229 +206,116 @@ async function analyzePrompt() {
 
 function displayResults(data) {
     const tier1 = data.tier1;
-    const unified = data.unified;
 
     // Hide loading, show results
     elements.loadingState.classList.add('hidden');
     elements.resultsDisplay.classList.remove('hidden');
 
-    // PRIORITY: Show unified score if available (Tier 2 was run)
-    if (unified) {
-        displayUnifiedVerdict(unified, tier1);
+    // Tier 1 Score
+    document.getElementById('tier1Score').textContent = tier1.overall_score.toFixed(1);
+    document.getElementById('tier1ScoreBar').style.width = `${tier1.overall_score * 10}%`;
+
+    // Tier 1 Quality badge
+    const tier1Badge = document.getElementById('tier1Badge');
+    const rating = tier1.quality_rating.toUpperCase();
+    tier1Badge.textContent = rating;
+    tier1Badge.className = `px-3 py-1 rounded-full text-xs font-semibold ${getQualityBadgeClass(rating)}`;
+
+    // Tier 2 Score (if available)
+    if (data.tier2 && !data.tier2.error) {
+        const tier2Section = document.getElementById('tier2ScoreSection');
+        tier2Section.classList.remove('hidden');
+
+        const tier2Score = data.tier2.semantic_impossibility.score;
+        const riskType = data.tier2.semantic_impossibility.primary_risk_type;
+
+        document.getElementById('tier2Score').textContent = tier2Score.toFixed(1);
+        document.getElementById('tier2ScoreBar').style.width = `${tier2Score * 10}%`;
+
+        const tier2Badge = document.getElementById('tier2Badge');
+        tier2Badge.textContent = riskType.toUpperCase();
+        tier2Badge.className = `px-3 py-1 rounded-full text-xs font-semibold ${getRiskBadgeClass(riskType, tier2Score)}`;
+
+        // Show cost info
+        const costInfo = document.getElementById('costInfo');
+        costInfo.classList.remove('hidden');
+        document.getElementById('inputTokens').textContent = data.tier2.cost.input_tokens;
+        document.getElementById('outputTokens').textContent = data.tier2.cost.output_tokens;
+        document.getElementById('totalCost').textContent = `$${data.tier2.cost.total_cost.toFixed(6)}`;
     } else {
-        // Show Tier 1 only
-        displayTier1Only(tier1);
+        document.getElementById('tier2ScoreSection').classList.add('hidden');
+        document.getElementById('costInfo').classList.add('hidden');
     }
 
-    // Component scores (always show)
-    displayComponentScores(tier1.scores, unified);
+    // Fulfillable status
+    const fulfillable = document.getElementById('fulfillableStatus');
+    if (tier1.is_fulfillable) {
+        fulfillable.innerHTML = '<i class="fas fa-check-circle text-green-500 mr-2"></i>Can fulfill request';
+    } else {
+        fulfillable.innerHTML = '<i class="fas fa-times-circle text-red-500 mr-2"></i>Cannot fulfill request';
+    }
+
+    // Component scores
+    displayComponentScores(tier1.scores);
 
     // Issues
     displayIssues(tier1.issues);
 
-    // Tier 2 results
-    if (data.tier2) {
-        displayTier2Results(data.tier2, unified);
+    // Tier 2 detailed results
+    if (data.tier2 && !data.tier2.error) {
+        displayTier2Details(data.tier2);
     } else {
         document.getElementById('tier2Results').classList.add('hidden');
     }
 }
 
-function displayUnifiedVerdict(unified, tier1) {
-    const container = document.getElementById('overallQuality');
-
-    // Determine visual style based on risk level
-    const riskStyles = {
-        'critical': {
-            bgColor: 'bg-red-100 border-red-500',
-            textColor: 'text-red-900',
-            barColor: 'bg-red-600',
-            icon: 'fa-exclamation-triangle',
-            iconColor: 'text-red-600'
-        },
-        'high': {
-            bgColor: 'bg-orange-100 border-orange-500',
-            textColor: 'text-orange-900',
-            barColor: 'bg-orange-500',
-            icon: 'fa-exclamation-circle',
-            iconColor: 'text-orange-600'
-        },
-        'moderate': {
-            bgColor: 'bg-yellow-100 border-yellow-500',
-            textColor: 'text-yellow-900',
-            barColor: 'bg-yellow-500',
-            icon: 'fa-exclamation',
-            iconColor: 'text-yellow-600'
-        },
-        'low': {
-            bgColor: 'bg-blue-100 border-blue-400',
-            textColor: 'text-blue-900',
-            barColor: 'bg-blue-500',
-            icon: 'fa-info-circle',
-            iconColor: 'text-blue-600'
-        },
-        'none': {
-            bgColor: 'bg-green-100 border-green-400',
-            textColor: 'text-green-900',
-            barColor: 'bg-green-600',
-            icon: 'fa-check-circle',
-            iconColor: 'text-green-600'
-        }
-    };
-
-    const style = riskStyles[unified.risk_level] || riskStyles['none'];
-
-    container.innerHTML = `
-        <div class="border-4 ${style.bgColor} rounded-lg p-6 mb-6">
-            <div class="flex items-center mb-4">
-                <i class="fas ${style.icon} ${style.iconColor} text-3xl mr-4"></i>
-                <div class="flex-1">
-                    <h2 class="text-2xl font-bold ${style.textColor}">FINAL VERDICT</h2>
-                    <p class="text-lg font-semibold ${style.textColor} mt-1">${unified.verdict}</p>
-                </div>
-                <div class="text-right">
-                    <div class="text-4xl font-bold ${style.textColor}">${unified.score.toFixed(1)}</div>
-                    <div class="text-sm ${style.textColor}">/ 10</div>
-                </div>
-            </div>
-
-            ${unified.primary_concern ? `
-                <div class="bg-white bg-opacity-60 rounded p-4 mb-4">
-                    <h3 class="font-semibold ${style.textColor} mb-2">⚠️ Primary Concern:</h3>
-                    <p class="text-sm ${style.textColor}">${unified.primary_concern}</p>
-                </div>
-            ` : ''}
-
-            <div class="w-full bg-gray-300 rounded-full h-4 mb-4">
-                <div class="${style.barColor} h-4 rounded-full transition-all duration-500"
-                     style="width: ${unified.score * 10}%"></div>
-            </div>
-
-            <details class="text-sm ${style.textColor}">
-                <summary class="cursor-pointer font-semibold mb-2">ℹ️ Understanding Your Score</summary>
-                <div class="pl-4 mt-2 space-y-2">
-                    <p><strong>Tier 1 Score (${tier1.overall_score.toFixed(1)}/10):</strong> ${unified.tier1_explanation}</p>
-                    <p><strong>Tier 2 Analysis:</strong> ${unified.tier2_explanation}</p>
-                    <p><strong>Why ${unified.score.toFixed(1)}?</strong> ${
-                        unified.risk_level === 'critical' || unified.risk_level === 'high'
-                            ? 'Safety/security risks detected by Tier 2 override structural quality from Tier 1.'
-                            : unified.risk_level === 'moderate'
-                            ? 'Score blends Tier 1 structure (30%) and Tier 2 semantics (70%).'
-                            : 'Tier 1 structural quality validated by Tier 2 semantic analysis.'
-                    }</p>
-                </div>
-            </details>
-        </div>
-
-        <div class="text-sm text-gray-600 bg-gray-50 rounded p-4 mb-4">
-            <strong>📊 For Reference - Tier 1 Structural Score:</strong> ${tier1.overall_score.toFixed(1)}/10 (${tier1.quality_rating.toUpperCase()})
-            <br>
-            <em>This measures format, consistency, and completeness only - not safety or semantics.</em>
-        </div>
-    `;
-}
-
-function displayTier1Only(tier1) {
-    const container = document.getElementById('overallQuality');
-
-    container.innerHTML = `
-        <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 mb-6 border-2 border-blue-200">
-            <div class="flex items-center justify-between mb-4">
-                <div class="flex items-center">
-                    <i class="fas fa-chart-line text-blue-600 text-3xl mr-4"></i>
-                    <div>
-                        <h2 class="text-2xl font-bold text-gray-800">Structural Quality</h2>
-                        <p class="text-sm text-gray-600">Tier 1 Analysis Only</p>
-                    </div>
-                </div>
-                <div class="text-right">
-                    <div class="text-4xl font-bold text-gray-800">${tier1.overall_score.toFixed(1)}</div>
-                    <div class="text-sm text-gray-600">/ 10</div>
-                    <span class="px-3 py-1 rounded-full text-xs font-semibold ${getQualityBadgeClass(tier1.quality_rating.toUpperCase())}">${tier1.quality_rating.toUpperCase()}</span>
-                </div>
-            </div>
-
-            <div class="w-full bg-gray-300 rounded-full h-4 mb-4">
-                <div class="bg-blue-600 h-4 rounded-full transition-all duration-500"
-                     style="width: ${tier1.overall_score * 10}%"></div>
-            </div>
-
-            ${tier1.is_fulfillable
-                ? '<p class="text-green-600 font-medium"><i class="fas fa-check-circle mr-2"></i>Can fulfill request</p>'
-                : '<p class="text-red-600 font-medium"><i class="fas fa-times-circle mr-2"></i>Cannot fulfill request</p>'
-            }
-
-            <div class="mt-4 p-4 bg-yellow-50 border-l-4 border-yellow-400 rounded">
-                <p class="text-sm text-yellow-800">
-                    <strong>ℹ️ Note:</strong> This score measures prompt structure, format, and internal consistency only.
-                    It does NOT evaluate safety, security, or ethical concerns.
-                    For comprehensive analysis including safety checks, enable <strong>Tier 1 + Tier 2</strong> mode.
-                </p>
-            </div>
-        </div>
-    `;
-}
-
-function displayComponentScores(scores, unified) {
+function displayComponentScores(scores) {
     const container = document.getElementById('componentScores');
     container.innerHTML = '';
-
-    // Add header with explanation
-    const header = document.createElement('div');
-    header.className = 'mb-4 pb-3 border-b border-gray-200';
-    header.innerHTML = `
-        <h3 class="text-lg font-semibold text-gray-800 mb-2">Component Breakdown (Tier 1)</h3>
-        <p class="text-sm text-gray-600">
-            ${unified
-                ? '<em>These structural metrics are informational. Final score is based on unified analysis above.</em>'
-                : '<em>These metrics combine to form the overall score above.</em>'
-            }
-        </p>
-    `;
-    container.appendChild(header);
 
     const components = [
         {
             name: 'Alignment',
             score: scores.alignment,
             icon: 'fa-sync-alt',
-            tooltip: 'How well the system prompt can fulfill user requests'
+            description: 'Measures if system & user prompts work together without conflicts'
         },
         {
             name: 'Consistency',
             score: scores.consistency,
             icon: 'fa-check-double',
-            tooltip: 'Internal consistency - no contradictions or conflicts'
+            description: 'Checks for contradictions or conflicting instructions'
         },
         {
             name: 'Verbosity',
             score: scores.verbosity,
             icon: 'fa-text-height',
-            tooltip: 'Appropriate length and clarity - not too verbose or terse'
+            description: 'Evaluates prompt length and conciseness'
         },
         {
             name: 'Completeness',
             score: scores.completeness,
             icon: 'fa-puzzle-piece',
-            tooltip: 'All necessary information and constraints are specified'
+            description: 'Checks if all necessary parameters and context are provided'
         }
     ];
 
     components.forEach(comp => {
         const div = document.createElement('div');
-        div.className = 'flex items-center justify-between py-2';
+        div.className = 'mb-4 pb-4 border-b border-gray-100 last:border-b-0 last:mb-0 last:pb-0';
         div.innerHTML = `
-            <div class="flex items-center space-x-3">
-                <i class="fas ${comp.icon} text-gray-600"></i>
-                <span class="font-medium text-gray-800">${comp.name}</span>
-                <i class="fas fa-info-circle text-gray-400 text-xs cursor-help"
-                   title="${comp.tooltip}"></i>
-            </div>
-            <div class="flex items-center space-x-4">
-                <div class="w-32 bg-gray-200 rounded-full h-2">
-                    <div class="h-2 rounded-full ${getScoreColor(comp.score)}" style="width: ${comp.score * 10}%"></div>
+            <div class="flex items-start justify-between mb-2">
+                <div class="flex items-start space-x-3 flex-1">
+                    <i class="fas ${comp.icon} text-gray-600 mt-1"></i>
+                    <div class="flex-1">
+                        <div class="font-medium text-gray-800">${comp.name}</div>
+                        <div class="text-xs text-gray-500 mt-1">${comp.description}</div>
+                    </div>
                 </div>
-                <span class="font-semibold text-gray-800 w-12 text-right">${comp.score.toFixed(1)}</span>
+                <span class="font-bold text-gray-800 text-lg ml-4">${comp.score.toFixed(1)}</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+                <div class="h-2 rounded-full ${getScoreColor(comp.score)}" style="width: ${comp.score * 10}%"></div>
             </div>
         `;
         container.appendChild(div);
@@ -469,7 +356,7 @@ function displayIssues(issues) {
     });
 }
 
-function displayTier2Results(tier2, unified) {
+function displayTier2Details(tier2) {
     const container = document.getElementById('tier2Content');
     const results = document.getElementById('tier2Results');
     results.classList.remove('hidden');
@@ -486,71 +373,31 @@ function displayTier2Results(tier2, unified) {
 
     const impossibility = tier2.semantic_impossibility;
 
-    // If unified score exists, show collapsed detailed analysis
-    const defaultOpen = !unified;
-
     container.innerHTML = `
         <div class="space-y-4">
-            <details ${defaultOpen ? 'open' : ''}>
-                <summary class="cursor-pointer font-semibold text-gray-800 mb-3 hover:text-blue-600">
-                    📊 Detailed Tier 2 Analysis (Click to ${defaultOpen ? 'collapse' : 'expand'})
-                </summary>
-
-                <div class="bg-white rounded-lg p-4 shadow mt-3">
-                    <h4 class="font-semibold text-gray-800 mb-3">Semantic & Safety Analysis</h4>
-                    <div class="grid grid-cols-2 gap-4 mb-4">
-                        <div>
-                            <span class="text-sm text-gray-600">Risk Score</span>
-                            <p class="text-2xl font-bold text-purple-600">${impossibility.score.toFixed(1)}/10</p>
-                            <span class="text-xs text-gray-500">Higher = More Risky</span>
-                        </div>
-                        <div>
-                            <span class="text-sm text-gray-600">Primary Risk Type</span>
-                            <p class="text-lg font-semibold ${getRiskTypeClass(impossibility.primary_risk_type)}">
-                                ${impossibility.primary_risk_type.toUpperCase()}
-                            </p>
-                        </div>
-                    </div>
-
-                    ${impossibility.is_impossible ? `
-                        <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-                            <h5 class="font-semibold text-red-800 mb-2">⚠️ Issue Detected</h5>
-                            <p class="text-sm text-red-700">${impossibility.explanation}</p>
-                        </div>
-                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                            <h5 class="font-semibold text-blue-800 mb-2">💡 Recommendation</h5>
-                            <p class="text-sm text-blue-700">${impossibility.recommendation}</p>
-                        </div>
-                    ` : `
-                        <div class="bg-green-50 border border-green-200 rounded-lg p-4">
-                            <p class="text-green-800"><i class="fas fa-check-circle mr-2"></i>No safety or semantic issues detected</p>
-                            <p class="text-sm text-green-700 mt-2">${impossibility.explanation}</p>
-                        </div>
-                    `}
-
-                    <div class="mt-4 text-xs text-gray-500">
-                        Confidence: ${(impossibility.confidence * 100).toFixed(0)}%
+            ${impossibility.is_impossible ? `
+                <div class="bg-red-50 border-l-4 border-red-500 rounded-lg p-4">
+                    <h5 class="font-semibold text-red-800 mb-2 flex items-center">
+                        <i class="fas fa-exclamation-triangle mr-2"></i>
+                        Request is Impossible or High-Risk
+                    </h5>
+                    <p class="text-sm text-red-700 mb-3">${impossibility.explanation}</p>
+                    <div class="bg-white rounded p-3 mt-3">
+                        <h6 class="font-semibold text-blue-800 mb-2 text-sm flex items-center">
+                            <i class="fas fa-lightbulb mr-2"></i>
+                            Recommendation
+                        </h6>
+                        <p class="text-sm text-blue-700">${impossibility.recommendation}</p>
                     </div>
                 </div>
-            </details>
-
-            <div class="bg-white rounded-lg p-4 shadow">
-                <h4 class="font-semibold text-gray-800 mb-2">Cost Summary</h4>
-                <div class="grid grid-cols-3 gap-4 text-sm">
-                    <div>
-                        <span class="text-gray-600">Input Tokens</span>
-                        <p class="font-semibold">${tier2.cost.input_tokens}</p>
-                    </div>
-                    <div>
-                        <span class="text-gray-600">Output Tokens</span>
-                        <p class="font-semibold">${tier2.cost.output_tokens}</p>
-                    </div>
-                    <div>
-                        <span class="text-gray-600">Total Cost</span>
-                        <p class="font-semibold text-purple-600">$${tier2.cost.total_cost.toFixed(4)}</p>
-                    </div>
+            ` : `
+                <div class="bg-green-50 border-l-4 border-green-500 rounded-lg p-4">
+                    <p class="text-green-800 font-medium">
+                        <i class="fas fa-check-circle mr-2"></i>
+                        No safety or security risks detected
+                    </p>
                 </div>
-            </div>
+            `}
         </div>
     `;
 }
@@ -635,4 +482,17 @@ function getRiskTypeClass(type) {
         'none': 'text-green-600'
     };
     return classes[type] || 'text-gray-600';
+}
+
+function getRiskBadgeClass(type, score) {
+    // High risk (score >= 7)
+    if (score >= 7) {
+        return 'bg-red-100 text-red-800';
+    }
+    // Medium risk (score 4-7)
+    if (score >= 4) {
+        return 'bg-orange-100 text-orange-800';
+    }
+    // Low risk (score < 4)
+    return 'bg-green-100 text-green-800';
 }
