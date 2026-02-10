@@ -82,6 +82,8 @@ def analyze_prompt():
         use_llm = data.get('use_llm', False)
         verbose = data.get('verbose', False)
 
+        print(f"[DEBUG] Received: use_llm={use_llm}, user_prompt={user_prompt is not None}, len={len(user_prompt) if user_prompt else 0}")
+
         # Handle artifacts
         artifacts = {}
         artifact_files = data.get('artifacts', {})
@@ -134,12 +136,15 @@ def analyze_prompt():
 
         # Run Tier 2 LLM analysis if requested
         if use_llm and user_prompt:
+            print(f"[DEBUG] Starting Tier 2 analysis. use_llm={use_llm}, user_prompt={user_prompt[:50]}...")
             try:
                 # Initialize LLM analyzer lazily (only when needed)
                 global global_llm_analyzer
                 if global_llm_analyzer is None:
+                    print("[DEBUG] Initializing LLM analyzer...")
                     global_llm_analyzer = LLMAnalyzer(verbose=verbose)
                 llm_analyzer = global_llm_analyzer
+                print("[DEBUG] LLM analyzer ready")
 
                 # Semantic impossibility detection
                 tier1_issues = [
@@ -159,6 +164,13 @@ def analyze_prompt():
                     tier1_issues=tier1_issues
                 )
 
+                # Calculate unified score
+                report = global_analyzer.calculate_unified_score(report, impossibility_result)
+
+                print(f"[DEBUG] Unified score after calculation: {report.unified_score}")
+                print(f"[DEBUG] Unified verdict: {report.unified_verdict}")
+                print(f"[DEBUG] Risk level: {report.risk_level}")
+
                 response['tier2'] = {
                     'semantic_impossibility': {
                         'is_impossible': impossibility_result.is_impossible,
@@ -175,7 +187,21 @@ def analyze_prompt():
                     }
                 }
 
+                # Add unified scoring to response
+                if report.unified_score is not None:
+                    response['unified'] = {
+                        'score': report.unified_score,
+                        'verdict': report.unified_verdict,
+                        'risk_level': report.risk_level.value,
+                        'primary_concern': report.primary_concern,
+                        'tier1_explanation': report.tier1_explanation,
+                        'tier2_explanation': report.tier2_explanation
+                    }
+
             except Exception as e:
+                print(f"[ERROR] Exception in Tier 2 analysis: {e}")
+                import traceback
+                traceback.print_exc()
                 response['tier2'] = {
                     'error': str(e),
                     'message': 'LLM analysis failed. Tier 1 results are still available.'

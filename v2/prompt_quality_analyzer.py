@@ -37,6 +37,15 @@ class PromptQuality(Enum):
     CRITICAL = "critical"        # 0.0-2.9
 
 
+class RiskLevel(Enum):
+    """Risk level for unified scoring"""
+    NONE = "none"               # No safety/security risks
+    LOW = "low"                 # Minor concerns
+    MODERATE = "moderate"       # Needs revision
+    HIGH = "high"               # Not recommended
+    CRITICAL = "critical"       # Dangerous/illegal
+
+
 @dataclass
 class QualityIssue:
     """Represents a quality issue found during analysis"""
@@ -60,16 +69,24 @@ class QualityIssue:
 class PromptQualityReport:
     """Complete quality assessment report"""
 
-    # Overall metrics
+    # Overall metrics (REQUIRED)
     overall_score: float  # 0-10
     quality_rating: PromptQuality
     is_fulfillable: bool  # Can system fulfill user request?
 
-    # Individual component scores
+    # Individual component scores (REQUIRED)
     alignment_score: float        # 0-10
     consistency_score: float      # 0-10 (from contradiction detection)
     verbosity_score: float        # 0-10 (inverse of verbosity)
     completeness_score: float     # 0-10
+
+    # Unified scoring (OPTIONAL - when Tier 2 is available)
+    unified_score: Optional[float] = None  # 0-10, overrides overall_score when Tier 2 detects risks
+    unified_verdict: Optional[str] = None  # "RECOMMENDED", "NEEDS REVISION", "NOT RECOMMENDED", "DANGEROUS"
+    risk_level: RiskLevel = RiskLevel.NONE
+    primary_concern: Optional[str] = None  # Main issue detected by Tier 2
+    tier1_explanation: str = "Measures prompt structure, format, and internal consistency. Does NOT evaluate ethical/safety concerns."
+    tier2_explanation: Optional[str] = None  # Explanation when Tier 2 is used
 
     # Detailed results from each component
     system_analysis: Optional[SystemPromptAnalysis] = None
@@ -266,6 +283,110 @@ class PromptQualityAnalyzer:
 
         if self.verbose:
             print(f"[COMPLETE] Analysis finished. Overall Score: {report.overall_score:.1f}/10")
+
+        return report
+
+    def calculate_unified_score(
+        self,
+        report: PromptQualityReport,
+        tier2_result=None
+    ) -> PromptQualityReport:
+        """
+        Calculate unified score when Tier 2 analysis is available.
+
+        Logic:
+        - If Tier 2 detects SAFETY or SECURITY risks: Override Tier 1 completely
+        - If Tier 2 detects SEMANTIC impossibility: Blend scores (30% Tier 1, 70% Tier 2)
+        - Otherwise: Use Tier 1 score as-is
+
+        Args:
+            report: The original Tier 1 report
+            tier2_result: SemanticImpossibilityResult from LLM analysis
+
+        Returns:
+            Updated report with unified scoring
+        """
+        print(f"[DEBUG] calculate_unified_score called. tier2_result={tier2_result is not None}")
+        if tier2_result:
+            print(f"[DEBUG] is_impossible={tier2_result.is_impossible}, risk_type={tier2_result.primary_risk_type}")
+
+        if not tier2_result:
+            # No Tier 2, return original report
+            print("[DEBUG] No tier2_result, returning original report")
+            return report
+
+        tier1_score = report.overall_score
+
+        # Determine risk level and unified score based on Tier 2 results
+        if tier2_result.is_impossible:
+            risk_type = tier2_result.primary_risk_type.lower()
+            impossibility_score = tier2_result.impossibility_score  # 0-10, higher = more risky
+
+            if risk_type == 'safety':
+                # CRITICAL: Safety violations override everything
+                unified_score = max(0, 10 - impossibility_score)  # Invert: high risk = low score
+
+                if impossibility_score >= 9.0:
+                    risk_level = RiskLevel.CRITICAL
+                    verdict = "DANGEROUS - REJECT IMMEDIATELY"
+                elif impossibility_score >= 7.0:
+                    risk_level = RiskLevel.HIGH
+                    verdict = "HIGH RISK - NOT RECOMMENDED"
+                else:
+                    risk_level = RiskLevel.MODERATE
+                    verdict = "SAFETY CONCERNS - NEEDS REVISION"
+
+                primary_concern = f"Safety Violation: {tier2_result.explanation[:200]}"
+
+            elif risk_type == 'security':
+                # HIGH: Security issues override Tier 1
+                unified_score = max(0, 10 - impossibility_score)
+
+                if impossibility_score >= 8.0:
+                    risk_level = RiskLevel.CRITICAL
+                    verdict = "CRITICAL SECURITY RISK - REJECT"
+                elif impossibility_score >= 6.0:
+                    risk_level = RiskLevel.HIGH
+                    verdict = "SECURITY RISK - NOT RECOMMENDED"
+                else:
+                    risk_level = RiskLevel.MODERATE
+                    verdict = "SECURITY CONCERNS - NEEDS REVISION"
+
+                primary_concern = f"Security Risk: {tier2_result.explanation[:200]}"
+
+            else:  # semantic impossibility
+                # MODERATE: Blend Tier 1 (structure) + Tier 2 (semantics)
+                tier2_score = 10 - impossibility_score  # Invert
+                unified_score = (0.3 * tier1_score) + (0.7 * tier2_score)
+
+                if impossibility_score >= 7.0:
+                    risk_level = RiskLevel.HIGH
+                    verdict = "SEMANTICALLY IMPOSSIBLE - REVISE REQUEST"
+                elif impossibility_score >= 4.0:
+                    risk_level = RiskLevel.MODERATE
+                    verdict = "NEEDS REVISION"
+                else:
+                    risk_level = RiskLevel.LOW
+                    verdict = "MINOR CONCERNS"
+
+                primary_concern = f"Semantic Issue: {tier2_result.explanation[:200]}"
+
+        else:
+            # Tier 2 says it's fulfillable - use Tier 1 score with boost
+            unified_score = min(10.0, tier1_score + 0.5)  # Small boost for passing Tier 2
+            risk_level = RiskLevel.NONE
+            verdict = "RECOMMENDED" if unified_score >= 7.0 else "ACCEPTABLE"
+            primary_concern = None
+
+        # Update report with unified scoring
+        report.unified_score = unified_score
+        report.unified_verdict = verdict
+        report.risk_level = risk_level
+        report.primary_concern = primary_concern
+        report.tier2_explanation = (
+            "Uses AI to detect illegal requests, safety risks, prompt injection attacks, "
+            "and semantic impossibility. When risks are detected, Tier 2 overrides Tier 1."
+        )
 
         return report
 
